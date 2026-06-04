@@ -30,10 +30,11 @@ docker pull "$DOCKER_IMAGE"
 echo "🏗️ Running Gradle build inside Docker container..."
 echo "Note: The first run will take some time as Gradle downloads dependencies and caches them."
 
-# Run Gradle build inside the container.
-# We run as root so the container has full write access to the prebuilt Android SDK dir
-# (for installing licenses or platforms if Gradle needs to).
-# Then we immediately change ownership of the built files to the host user before exiting.
+# Run build inside the container.
+# - If node_modules is missing, we run npm install.
+# - If the android/ folder is missing, we run npx expo prebuild.
+# - Then we run the gradle compilation to generate the APK.
+# - Finally, we restore file ownership of everything we generated back to the host user.
 docker run --rm \
   -v "$PROJECT_DIR:/app" \
   -v "$CACHE_DIR:/root/.gradle" \
@@ -43,11 +44,21 @@ docker run --rm \
   -e HOST_GID="$REAL_GID" \
   "$DOCKER_IMAGE" \
   bash -c "
+    if [ ! -d 'node_modules' ]; then
+      echo '📦 node_modules not found. Installing Node.js packages inside container...'
+      npm install
+    fi
+
+    if [ ! -d 'android' ]; then
+      echo '⚙️ android/ folder not found. Running Expo prebuild inside container...'
+      npx expo prebuild --platform android --no-install
+    fi
+
     cd android && \
     ./gradlew assembleRelease; \
     status=\$?; \
     echo '🔧 Restoring file ownership inside container...'; \
-    chown -R \$HOST_UID:\$HOST_GID /app/android/app/build /root/.gradle; \
+    chown -R \$HOST_UID:\$HOST_GID /app/node_modules /app/android /app/android/app/build /root/.gradle 2>/dev/null || true; \
     exit \$status
   "
 
