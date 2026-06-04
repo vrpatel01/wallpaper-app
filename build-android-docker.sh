@@ -33,8 +33,9 @@ echo "Note: The first run will take some time as Gradle downloads dependencies a
 # Run build inside the container.
 # - If node_modules is missing, we run npm install.
 # - If the android/ folder is missing, we run npx expo prebuild.
-# - Then we run the gradle compilation to generate the APK.
-# - Finally, we restore file ownership of everything we generated back to the host user.
+# - Dynamically injects ABI architecture splits block.
+# - Runs gradle compilation.
+# - Restores file ownership.
 docker run --rm \
   -v "$PROJECT_DIR:/app" \
   -v "$CACHE_DIR:/root/.gradle" \
@@ -54,6 +55,20 @@ docker run --rm \
       npx expo prebuild --platform android --no-install
     fi
 
+    echo '🔧 Injecting APK architecture splits configuration...'
+    node -e '
+      const fs = require(\"fs\");
+      let content = fs.readFileSync(\"android/app/build.gradle\", \"utf8\");
+      if (!content.includes(\"splits {\")) {
+        content = content.replace(
+          \"android {\",
+          \"android {\\n    splits {\\n        abi {\\n            enable true\\n            reset()\\n            include \\\"armeabi-v7a\\\", \\\"arm64-v8a\\\", \\\"x86\\\", \\\"x86_64\\\"\\n            universalApk false\\n        }\\n    }\"
+        );
+        fs.writeFileSync(\"android/app/build.gradle\", content, \"utf8\");
+        console.log(\"✅ Dynamically injected APK architecture splits block!\");
+      }
+    '
+
     cd android && \
     ./gradlew assembleRelease; \
     status=\$?; \
@@ -69,4 +84,5 @@ if [ -n "$SUDO_UID" ]; then
 fi
 
 echo "🎉 Build finished successfully!"
-echo "📦 APK location: $PROJECT_DIR/android/app/build/outputs/apk/release/app-release.apk"
+echo "📦 APK location: $PROJECT_DIR/android/app/build/outputs/apk/release/"
+echo "   (Check for architecture-specific APKs, e.g. app-arm64-v8a-release.apk)"
