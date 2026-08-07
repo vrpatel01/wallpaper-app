@@ -30,8 +30,11 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# local env files — .env*.local alone doesn't match a plain .env, so it wasn't
+# actually excluded; this pattern does
+.env
+.env.*
+!.env.example
 
 # typescript
 *.tsbuildinfo
